@@ -29,42 +29,79 @@ wss.on("connection", (ws) => {
       if (!rooms[currentRoom]) {
         rooms[currentRoom] = {
           clients: new Set(),
-          videoState: null,
+          videoState: {
+            videoId: "",
+            isPlaying: false,
+            currentTime: 0,
+            volume: 50,
+          },
           chatHistory: [],
         };
       }
       rooms[currentRoom].clients.add(ws);
-      // Send chat history and video state
+      // Send initial data to the new client
       ws.send(
         JSON.stringify({
           type: "init",
           chatHistory: rooms[currentRoom].chatHistory,
           videoState: rooms[currentRoom].videoState,
+          participants: rooms[currentRoom].clients.size,
         })
       );
-      // Notify others
-      broadcast(currentRoom, {
-        type: "user-joined",
-        username,
-        participants: rooms[currentRoom].clients.size,
-      });
+      // Notify other clients about the new user
+      broadcastToRoom(
+        currentRoom,
+        {
+          type: "user-joined",
+          username,
+          participants: rooms[currentRoom].clients.size,
+        },
+        ws
+      );
+    } else if (msg.type === "chat") {
+      // { type: 'chat', message }
+      if (currentRoom && username) {
+        const chatMessage = {
+          username,
+          message: msg.message,
+          timestamp: msg.timestamp || new Date().toISOString(),
+        };
+        rooms[currentRoom].chatHistory.push(chatMessage);
+        // Keep only last 100 messages
+        if (rooms[currentRoom].chatHistory.length > 100) {
+          rooms[currentRoom].chatHistory =
+            rooms[currentRoom].chatHistory.slice(-100);
+        }
+        broadcastToRoom(currentRoom, {
+          type: "chat",
+          ...chatMessage,
+        });
+      }
     } else if (msg.type === "video") {
       // { type: 'video', action, payload }
-      if (currentRoom) {
-        rooms[currentRoom].videoState = msg;
-        broadcast(currentRoom, { ...msg, username });
-      }
-    } else if (msg.type === "chat") {
-      // { type: 'chat', message, timestamp }
-      if (currentRoom) {
-        const chatMsg = {
-          type: "chat",
-          message: msg.message,
+      if (currentRoom && username) {
+        const videoMessage = {
+          type: "video",
+          action: msg.action,
+          payload: msg.payload,
           username,
-          timestamp: msg.timestamp,
+          timestamp: new Date().toISOString(),
         };
-        rooms[currentRoom].chatHistory.push(chatMsg);
-        broadcast(currentRoom, chatMsg);
+        // Update room's video state based on action
+        if (msg.action === "changeVideo") {
+          rooms[currentRoom].videoState.videoId = msg.payload.videoId;
+        } else if (msg.action === "play") {
+          rooms[currentRoom].videoState.isPlaying = true;
+          rooms[currentRoom].videoState.currentTime = msg.payload.currentTime;
+        } else if (msg.action === "pause") {
+          rooms[currentRoom].videoState.isPlaying = false;
+          rooms[currentRoom].videoState.currentTime = msg.payload.currentTime;
+        } else if (msg.action === "seek") {
+          rooms[currentRoom].videoState.currentTime = msg.payload.time;
+        } else if (msg.action === "volume") {
+          rooms[currentRoom].videoState.volume = msg.payload.volume;
+        }
+        broadcastToRoom(currentRoom, videoMessage);
       }
     }
   });
@@ -72,31 +109,45 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     if (currentRoom && rooms[currentRoom]) {
       rooms[currentRoom].clients.delete(ws);
-      broadcast(currentRoom, {
-        type: "user-left",
-        username,
-        participants: rooms[currentRoom].clients.size,
-      });
       if (rooms[currentRoom].clients.size === 0) {
+        // Delete room if empty
         delete rooms[currentRoom];
+      } else {
+        // Notify remaining clients
+        broadcastToRoom(currentRoom, {
+          type: "user-left",
+          username,
+          participants: rooms[currentRoom].clients.size,
+        });
       }
     }
   });
 });
 
-function broadcast(roomId, msg) {
-  if (!rooms[roomId]) return;
-  for (const client of rooms[roomId].clients) {
-    if (client.readyState === 1) {
-      client.send(JSON.stringify(msg));
-    }
+function broadcastToRoom(roomId, message, excludeWs = null) {
+  if (rooms[roomId]) {
+    rooms[roomId].clients.forEach((client) => {
+      if (client !== excludeWs && client.readyState === 1) {
+        // 1 = WebSocket.OPEN
+        client.send(JSON.stringify(message));
+      }
+    });
   }
 }
 
-app.get("/", (req, res) => {
-  res.send("WatchParty WebSocket server is running.");
+// Health check endpoint
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    rooms: Object.keys(rooms).length,
+    totalClients: Object.values(rooms).reduce(
+      (sum, room) => sum + room.clients.size,
+      0
+    ),
+  });
 });
 
 server.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+  console.log(`WatchParty WebSocket server running on port ${PORT}`);
+  console.log(`Health check available at http://localhost:${PORT}/health`);
 });

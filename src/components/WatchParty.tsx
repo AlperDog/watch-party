@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { IoArrowBack, IoShareOutline } from 'react-icons/io5';
-import VideoPlayer from './VideoPlayer';
+import YouTubePlayer from './YouTubePlayer';
+import VideoInput from './VideoInput';
 import ChatArea from './ChatArea';
 import { WebSocketService } from '../services/websocket';
 
@@ -107,6 +108,8 @@ interface Message {
 const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsService }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [participantCount, setParticipantCount] = useState(1);
+  const [currentVideoId, setCurrentVideoId] = useState('');
+  const [isHost, setIsHost] = useState(true); // First user to join becomes host
 
   useEffect(() => {
     // Set up WebSocket message handlers
@@ -120,6 +123,11 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
           timestamp: new Date(msg.timestamp)
         }));
         setMessages(formattedMessages);
+      }
+      
+      // Set current video if room has one
+      if (data.videoState && data.videoState.videoId) {
+        setCurrentVideoId(data.videoState.videoId);
       }
     });
 
@@ -161,6 +169,18 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
     wsService.onMessage('video', (data) => {
       // Handle video sync messages
       console.log('Video sync:', data);
+      
+      if (data.action === 'changeVideo') {
+        setCurrentVideoId(data.payload.videoId);
+        const videoMessage = {
+          id: messages.length + 1,
+          user: 'System',
+          avatar: '🎬',
+          message: `${data.username} changed the video to: ${data.payload.videoId}`,
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, videoMessage]);
+      }
     });
   }, [wsService, messages.length]);
 
@@ -170,6 +190,11 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
 
   const handleVideoAction = (action: string, payload: any) => {
     wsService.sendVideoAction(action, payload);
+  };
+
+  const handleVideoChange = (videoId: string) => {
+    setCurrentVideoId(videoId);
+    wsService.sendVideoAction('changeVideo', { videoId });
   };
 
   const handleInvite = () => {
@@ -195,7 +220,15 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
       
       <MainContent>
         <VideoSection>
-          <VideoPlayer onVideoAction={handleVideoAction} />
+          <VideoInput 
+            onVideoChange={handleVideoChange}
+            currentVideoId={currentVideoId}
+          />
+          <YouTubePlayer 
+            videoId={currentVideoId}
+            onVideoAction={handleVideoAction}
+            isHost={isHost}
+          />
         </VideoSection>
         
         <ChatSection>
