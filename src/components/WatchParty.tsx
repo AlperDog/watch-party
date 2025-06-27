@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { IoArrowBack, IoShareOutline } from 'react-icons/io5';
 import VideoPlayer from './VideoPlayer';
 import ChatArea from './ChatArea';
+import { WebSocketService } from '../services/websocket';
+
+interface WatchPartyProps {
+  roomId: string;
+  username: string;
+  onLeave: () => void;
+  wsService: WebSocketService;
+}
 
 const Container = styled.div`
   height: 100vh;
@@ -88,52 +96,85 @@ const ChatSection = styled.div`
   background: rgba(0, 0, 0, 0.3);
 `;
 
-const WatchParty: React.FC = () => {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      user: 'Alex',
-      avatar: '👤',
-      message: 'Hello everyone! This movie is great!',
-      timestamp: new Date()
-    },
-    {
-      id: 2,
-      user: 'Sarah',
-      avatar: '👤',
-      message: 'Agreed! What\'s your favorite part so far?',
-      timestamp: new Date()
-    },
-    {
-      id: 3,
-      user: 'Mike',
-      avatar: '👤',
-      message: 'Haha, the scene with the cat! 🤣',
-      timestamp: new Date()
-    },
-    {
-      id: 4,
-      user: 'Alex',
-      avatar: '👤',
-      message: 'Mine too! 🐱',
-      timestamp: new Date()
-    }
-  ]);
+interface Message {
+  id: number;
+  user: string;
+  avatar: string;
+  message: string;
+  timestamp: Date;
+}
+
+const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsService }) => {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [participantCount, setParticipantCount] = useState(1);
+
+  useEffect(() => {
+    // Set up WebSocket message handlers
+    wsService.onMessage('init', (data) => {
+      if (data.chatHistory) {
+        const formattedMessages = data.chatHistory.map((msg: any, index: number) => ({
+          id: index + 1,
+          user: msg.username,
+          avatar: '👤',
+          message: msg.message,
+          timestamp: new Date(msg.timestamp)
+        }));
+        setMessages(formattedMessages);
+      }
+    });
+
+    wsService.onMessage('chat', (data) => {
+      const newMessage = {
+        id: messages.length + 1,
+        user: data.username,
+        avatar: '👤',
+        message: data.message,
+        timestamp: new Date(data.timestamp)
+      };
+      setMessages(prev => [...prev, newMessage]);
+    });
+
+    wsService.onMessage('user-joined', (data) => {
+      setParticipantCount(data.participants);
+      const joinMessage = {
+        id: messages.length + 1,
+        user: 'System',
+        avatar: '🎉',
+        message: `${data.username} joined the party!`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, joinMessage]);
+    });
+
+    wsService.onMessage('user-left', (data) => {
+      setParticipantCount(data.participants);
+      const leaveMessage = {
+        id: messages.length + 1,
+        user: 'System',
+        avatar: '👋',
+        message: `${data.username} left the party.`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, leaveMessage]);
+    });
+
+    wsService.onMessage('video', (data) => {
+      // Handle video sync messages
+      console.log('Video sync:', data);
+    });
+  }, [wsService, messages.length]);
 
   const handleSendMessage = (message: string) => {
-    const newMessage = {
-      id: messages.length + 1,
-      user: 'You',
-      avatar: '👤',
-      message,
-      timestamp: new Date()
-    };
-    setMessages([...messages, newMessage]);
+    wsService.sendChatMessage(message);
+  };
+
+  const handleVideoAction = (action: string, payload: any) => {
+    wsService.sendVideoAction(action, payload);
   };
 
   const handleInvite = () => {
-    // In a real app, this would open a share sheet
-    navigator.clipboard.writeText('https://watchparty.app/join/abc123');
+    const inviteUrl = `${window.location.origin}?room=${roomId}`;
+    navigator.clipboard.writeText(inviteUrl);
     alert('Invite link copied to clipboard!');
   };
 
@@ -141,10 +182,10 @@ const WatchParty: React.FC = () => {
     <Container>
       <Header>
         <HeaderLeft>
-          <BackButton>
+          <BackButton onClick={onLeave}>
             <IoArrowBack />
           </BackButton>
-          <PartyName>Friday Movie Night</PartyName>
+          <PartyName>Room: {roomId}</PartyName>
         </HeaderLeft>
         <InviteButton onClick={handleInvite}>
           <IoShareOutline />
@@ -154,14 +195,14 @@ const WatchParty: React.FC = () => {
       
       <MainContent>
         <VideoSection>
-          <VideoPlayer />
+          <VideoPlayer onVideoAction={handleVideoAction} />
         </VideoSection>
         
         <ChatSection>
           <ChatArea 
             messages={messages}
             onSendMessage={handleSendMessage}
-            participantCount={5}
+            participantCount={participantCount}
           />
         </ChatSection>
       </MainContent>
