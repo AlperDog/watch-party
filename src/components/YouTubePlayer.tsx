@@ -25,12 +25,23 @@ const PlayerContainer = styled.div`
 `;
 
 const YouTubeWrapper = styled.div`
-  width: 100%;
-  height: 100%;
-  
+  width: 80vw;
+  max-width: 1280px;
+  aspect-ratio: 16 / 9;
+  background: #111;
+  border-radius: 12px;
+  box-shadow: 0 4px 32px rgba(0,0,0,0.5);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
   iframe {
     width: 100%;
     height: 100%;
+    border: none;
+    display: block;
+    background: #000;
   }
 `;
 
