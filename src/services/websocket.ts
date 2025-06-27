@@ -1,5 +1,5 @@
 export interface WebSocketMessage {
-  type: 'join' | 'video' | 'chat' | 'init' | 'user-joined' | 'user-left';
+  type: 'join' | 'video' | 'chat' | 'init' | 'user-joined' | 'user-left' | 'playlist' | 'vote-skip';
   roomId?: string;
   username?: string;
   message?: string;
@@ -9,6 +9,7 @@ export interface WebSocketMessage {
   chatHistory?: any[];
   videoState?: any;
   participants?: number;
+  playlist?: any[];
 }
 
 export class WebSocketService {

@@ -8,7 +8,7 @@ const wss = new WebSocketServer({ server });
 
 const PORT = process.env.PORT || 4000;
 
-// In-memory rooms: { [roomId]: { clients: Set<WebSocket>, videoState, chatHistory } }
+// In-memory rooms: { [roomId]: { clients: Set<WebSocket>, videoState, chatHistory, playlist, voteSkip } }
 const rooms = {};
 
 wss.on("connection", (ws) => {
@@ -36,6 +36,8 @@ wss.on("connection", (ws) => {
             volume: 50,
           },
           chatHistory: [],
+          playlist: [],
+          voteSkip: { votes: new Set(), active: false },
         };
       }
       rooms[currentRoom].clients.add(ws);
@@ -45,6 +47,7 @@ wss.on("connection", (ws) => {
           type: "init",
           chatHistory: rooms[currentRoom].chatHistory,
           videoState: rooms[currentRoom].videoState,
+          playlist: rooms[currentRoom].playlist,
           participants: rooms[currentRoom].clients.size,
         })
       );
@@ -105,6 +108,125 @@ wss.on("connection", (ws) => {
         }
         // Broadcast to all clients in the room (including sender for confirmation)
         broadcastToRoom(currentRoom, videoMessage);
+      }
+    } else if (msg.type === "playlist") {
+      // { type: 'playlist', action, payload }
+      if (currentRoom && username) {
+        if (msg.action === "add") {
+          // payload: { videoId, title, addedBy }
+          rooms[currentRoom].playlist.push({
+            ...msg.payload,
+            addedBy: username,
+          });
+          broadcastToRoom(currentRoom, {
+            type: "playlist",
+            action: "update",
+            playlist: rooms[currentRoom].playlist,
+          });
+        } else if (msg.action === "remove") {
+          // payload: { index }
+          rooms[currentRoom].playlist.splice(msg.payload.index, 1);
+          broadcastToRoom(currentRoom, {
+            type: "playlist",
+            action: "update",
+            playlist: rooms[currentRoom].playlist,
+          });
+        } else if (msg.action === "next") {
+          // Move to next video
+          if (rooms[currentRoom].playlist.length > 0) {
+            const next = rooms[currentRoom].playlist.shift();
+            rooms[currentRoom].videoState.videoId = next.videoId;
+            rooms[currentRoom].videoState.isPlaying = false;
+            rooms[currentRoom].videoState.currentTime = 0;
+            broadcastToRoom(currentRoom, {
+              type: "video",
+              action: "changeVideo",
+              payload: { videoId: next.videoId },
+              username: "System",
+              timestamp: new Date().toISOString(),
+            });
+            broadcastToRoom(currentRoom, {
+              type: "playlist",
+              action: "update",
+              playlist: rooms[currentRoom].playlist,
+            });
+          }
+        } else if (msg.action === "reorder") {
+          // payload: { sourceIndex, destinationIndex }
+          const { sourceIndex, destinationIndex } = msg.payload;
+          const pl = rooms[currentRoom].playlist;
+          if (
+            typeof sourceIndex === "number" &&
+            typeof destinationIndex === "number" &&
+            sourceIndex >= 0 &&
+            destinationIndex >= 0 &&
+            sourceIndex < pl.length &&
+            destinationIndex < pl.length
+          ) {
+            const [moved] = pl.splice(sourceIndex, 1);
+            pl.splice(destinationIndex, 0, moved);
+            broadcastToRoom(currentRoom, {
+              type: "playlist",
+              action: "update",
+              playlist: pl,
+            });
+          }
+        }
+      }
+    } else if (msg.type === "vote-skip") {
+      // { type: 'vote-skip' }
+      if (currentRoom && username) {
+        const voteSkip = rooms[currentRoom].voteSkip;
+        if (!voteSkip.active) {
+          voteSkip.active = true;
+          voteSkip.votes = new Set([username]);
+        } else {
+          voteSkip.votes.add(username);
+        }
+        // Broadcast vote progress
+        broadcastToRoom(currentRoom, {
+          type: "vote-skip",
+          votes: Array.from(voteSkip.votes),
+          total: rooms[currentRoom].clients.size,
+        });
+        // If majority, skip
+        if (voteSkip.votes.size > rooms[currentRoom].clients.size / 2) {
+          voteSkip.active = false;
+          voteSkip.votes = new Set();
+          // Move to next video in playlist
+          if (rooms[currentRoom].playlist.length > 0) {
+            const next = rooms[currentRoom].playlist.shift();
+            rooms[currentRoom].videoState.videoId = next.videoId;
+            rooms[currentRoom].videoState.isPlaying = false;
+            rooms[currentRoom].videoState.currentTime = 0;
+            broadcastToRoom(currentRoom, {
+              type: "video",
+              action: "changeVideo",
+              payload: { videoId: next.videoId },
+              username: "System",
+              timestamp: new Date().toISOString(),
+            });
+            broadcastToRoom(currentRoom, {
+              type: "playlist",
+              action: "update",
+              playlist: rooms[currentRoom].playlist,
+            });
+            broadcastToRoom(currentRoom, {
+              type: "vote-skip",
+              votes: [],
+              total: rooms[currentRoom].clients.size,
+              skipped: true,
+            });
+          } else {
+            // No more videos
+            broadcastToRoom(currentRoom, {
+              type: "vote-skip",
+              votes: [],
+              total: rooms[currentRoom].clients.size,
+              skipped: true,
+            });
+          }
+        }
       }
     }
   });
