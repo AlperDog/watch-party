@@ -90,6 +90,8 @@ wss.on("connection", (ws) => {
         // Update room's video state based on action
         if (msg.action === "changeVideo") {
           rooms[currentRoom].videoState.videoId = msg.payload.videoId;
+          rooms[currentRoom].videoState.isPlaying = false;
+          rooms[currentRoom].videoState.currentTime = 0;
         } else if (msg.action === "play") {
           rooms[currentRoom].videoState.isPlaying = true;
           rooms[currentRoom].videoState.currentTime = msg.payload.currentTime;
@@ -101,6 +103,7 @@ wss.on("connection", (ws) => {
         } else if (msg.action === "volume") {
           rooms[currentRoom].videoState.volume = msg.payload.volume;
         }
+        // Broadcast to all clients in the room (including sender for confirmation)
         broadcastToRoom(currentRoom, videoMessage);
       }
     }
@@ -129,7 +132,11 @@ function broadcastToRoom(roomId, message, excludeWs = null) {
     rooms[roomId].clients.forEach((client) => {
       if (client !== excludeWs && client.readyState === 1) {
         // 1 = WebSocket.OPEN
-        client.send(JSON.stringify(message));
+        try {
+          client.send(JSON.stringify(message));
+        } catch (error) {
+          console.error("Error sending message to client:", error);
+        }
       }
     });
   }

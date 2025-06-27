@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import { IoArrowBack, IoShareOutline } from 'react-icons/io5';
-import YouTubePlayer from './YouTubePlayer';
+import YouTubePlayer, { YouTubePlayerRef } from './YouTubePlayer';
 import VideoInput from './VideoInput';
 import ChatArea from './ChatArea';
 import { WebSocketService } from '../services/websocket';
@@ -110,6 +110,7 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
   const [participantCount, setParticipantCount] = useState(1);
   const [currentVideoId, setCurrentVideoId] = useState('');
   const [isHost, setIsHost] = useState(true); // First user to join becomes host
+  const playerRef = useRef<YouTubePlayerRef>(null);
 
   useEffect(() => {
     // Set up WebSocket message handlers
@@ -129,6 +130,9 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
       if (data.videoState && data.videoState.videoId) {
         setCurrentVideoId(data.videoState.videoId);
       }
+      
+      // Set host status based on participant count
+      setIsHost(data.participants === 1);
     });
 
     wsService.onMessage('chat', (data) => {
@@ -180,9 +184,14 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
           timestamp: new Date()
         };
         setMessages(prev => [...prev, videoMessage]);
+      } else if (data.action === 'play' || data.action === 'pause' || data.action === 'seek' || data.action === 'volume') {
+        // Sync video state to non-host players
+        if (playerRef.current && data.username !== username) {
+          playerRef.current.handleVideoSync(data.action, data.payload);
+        }
       }
     });
-  }, [wsService, messages.length]);
+  }, [wsService, messages.length, username]);
 
   const handleSendMessage = (message: string) => {
     wsService.sendChatMessage(message);
@@ -225,6 +234,7 @@ const WatchParty: React.FC<WatchPartyProps> = ({ roomId, username, onLeave, wsSe
             currentVideoId={currentVideoId}
           />
           <YouTubePlayer 
+            ref={playerRef}
             videoId={currentVideoId}
             onVideoAction={handleVideoAction}
             isHost={isHost}

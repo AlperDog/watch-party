@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useImperativeHandle, forwardRef } from 'react';
 import styled from 'styled-components';
 import YouTube from 'react-youtube';
 import { IoPlay, IoPause, IoVolumeHigh, IoExpand, IoShare } from 'react-icons/io5';
@@ -8,6 +8,10 @@ interface YouTubePlayerProps {
   onVideoAction: (action: string, payload: any) => void;
   onVideoStateChange?: (state: any) => void;
   isHost?: boolean;
+}
+
+export interface YouTubePlayerRef {
+  handleVideoSync: (action: string, payload: any) => void;
 }
 
 const PlayerContainer = styled.div`
@@ -175,12 +179,12 @@ const VideoDescription = styled.p`
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
 `;
 
-const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ 
+const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({ 
   videoId, 
   onVideoAction, 
   onVideoStateChange,
   isHost = true 
-}) => {
+}, ref) => {
   const playerRef = useRef<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -189,6 +193,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [videoTitle, setVideoTitle] = useState('');
   const [videoDescription, setVideoDescription] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // YouTube player options
   const opts = {
@@ -207,10 +212,47 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     },
   };
 
+  // Expose sync handler to parent component
+  useImperativeHandle(ref, () => ({
+    handleVideoSync: (action: string, payload: any) => {
+      if (!playerRef.current || isHost) return; // Only non-hosts should sync
+
+      setIsSyncing(true);
+      
+      switch (action) {
+        case 'play':
+          playerRef.current.seekTo(payload.currentTime);
+          setTimeout(() => {
+            playerRef.current.playVideo();
+            setIsSyncing(false);
+          }, 100);
+          break;
+        case 'pause':
+          playerRef.current.seekTo(payload.currentTime);
+          setTimeout(() => {
+            playerRef.current.pauseVideo();
+            setIsSyncing(false);
+          }, 100);
+          break;
+        case 'seek':
+          playerRef.current.seekTo(payload.time);
+          setIsSyncing(false);
+          break;
+        case 'volume':
+          playerRef.current.setVolume(payload.volume);
+          setVolume(payload.volume);
+          setIsSyncing(false);
+          break;
+        default:
+          setIsSyncing(false);
+      }
+    }
+  }));
+
   useEffect(() => {
     // Update progress every second
     const interval = setInterval(() => {
-      if (playerRef.current && isPlaying) {
+      if (playerRef.current && isPlaying && !isSyncing) {
         const currentTime = playerRef.current.getCurrentTime();
         const duration = playerRef.current.getDuration();
         if (duration > 0) {
@@ -223,7 +265,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isPlaying]);
+  }, [isPlaying, isSyncing]);
 
   const onReady = (event: any) => {
     playerRef.current = event.target;
@@ -243,7 +285,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     const player = event.target;
     
     // YouTube player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
-    if (state === 1) {
+    if (state === 1 && !isSyncing) {
       setIsPlaying(true);
       if (isHost) {
         onVideoAction('play', { 
@@ -251,7 +293,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
           timestamp: Date.now()
         });
       }
-    } else if (state === 2) {
+    } else if (state === 2 && !isSyncing) {
       setIsPlaying(false);
       if (isHost) {
         onVideoAction('pause', { 
@@ -267,7 +309,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   };
 
   const handlePlayPause = () => {
-    if (!playerRef.current) return;
+    if (!playerRef.current || isSyncing) return;
 
     if (isPlaying) {
       playerRef.current.pauseVideo();
@@ -277,7 +319,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   };
 
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!playerRef.current || !isHost) return;
+    if (!playerRef.current || !isHost || isSyncing) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
@@ -319,34 +361,6 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     alert('Video URL copied to clipboard!');
   };
 
-  // Handle incoming video sync commands
-  useEffect(() => {
-    const handleVideoSync = (action: string, payload: any) => {
-      if (!playerRef.current || !isHost) return;
-
-      switch (action) {
-        case 'play':
-          playerRef.current.seekTo(payload.currentTime);
-          playerRef.current.playVideo();
-          break;
-        case 'pause':
-          playerRef.current.seekTo(payload.currentTime);
-          playerRef.current.pauseVideo();
-          break;
-        case 'seek':
-          playerRef.current.seekTo(payload.time);
-          break;
-        case 'volume':
-          playerRef.current.setVolume(payload.volume);
-          setVolume(payload.volume);
-          break;
-      }
-    };
-
-    // This would be called from the parent component when receiving WebSocket messages
-    // For now, we'll handle it through the onVideoAction callback
-  }, [isHost]);
-
   if (!videoId) {
     return (
       <PlayerContainer>
@@ -376,7 +390,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
       
       <ControlsOverlay>
         <ControlsContainer>
-          <PlayButton onClick={handlePlayPause}>
+          <PlayButton onClick={handlePlayPause} disabled={isSyncing}>
             {isPlaying ? <IoPause /> : <IoPlay />}
           </PlayButton>
           
@@ -407,6 +421,8 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
       </ControlsOverlay>
     </PlayerContainer>
   );
-};
+});
+
+YouTubePlayer.displayName = 'YouTubePlayer';
 
 export default YouTubePlayer; 
