@@ -378,6 +378,12 @@ const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
     alert('Video URL copied to clipboard!');
   };
 
+  const handleEnd = () => {
+    if (isHost && onVideoAction) {
+      onVideoAction('ended', {});
+    }
+  };
+
   if (!videoId) {
     return (
       <PlayerContainer>
@@ -397,6 +403,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
           opts={opts}
           onReady={onReady}
           onStateChange={onStateChange}
+          onEnd={handleEnd}
           iframeClassName={StyledIframe.styledComponentId}
         />
       </IframeCoverWrapper>

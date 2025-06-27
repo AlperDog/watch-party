@@ -105,6 +105,26 @@ wss.on("connection", (ws) => {
           rooms[currentRoom].videoState.currentTime = msg.payload.time;
         } else if (msg.action === "volume") {
           rooms[currentRoom].videoState.volume = msg.payload.volume;
+        } else if (msg.action === "ended") {
+          // Play next video in playlist if available
+          if (rooms[currentRoom].playlist.length > 0) {
+            const next = rooms[currentRoom].playlist.shift();
+            rooms[currentRoom].videoState.videoId = next.videoId;
+            rooms[currentRoom].videoState.isPlaying = false;
+            rooms[currentRoom].videoState.currentTime = 0;
+            broadcastToRoom(currentRoom, {
+              type: "video",
+              action: "changeVideo",
+              payload: { videoId: next.videoId },
+              username: "System",
+              timestamp: new Date().toISOString(),
+            });
+            broadcastToRoom(currentRoom, {
+              type: "playlist",
+              action: "update",
+              playlist: rooms[currentRoom].playlist,
+            });
+          }
         }
         // Broadcast to all clients in the room (including sender for confirmation)
         broadcastToRoom(currentRoom, videoMessage);
@@ -123,6 +143,28 @@ wss.on("connection", (ws) => {
             action: "update",
             playlist: rooms[currentRoom].playlist,
           });
+          // If nothing is playing, start playing the first video
+          if (
+            !rooms[currentRoom].videoState.videoId &&
+            rooms[currentRoom].playlist.length > 0
+          ) {
+            const first = rooms[currentRoom].playlist.shift();
+            rooms[currentRoom].videoState.videoId = first.videoId;
+            rooms[currentRoom].videoState.isPlaying = false;
+            rooms[currentRoom].videoState.currentTime = 0;
+            broadcastToRoom(currentRoom, {
+              type: "video",
+              action: "changeVideo",
+              payload: { videoId: first.videoId },
+              username: "System",
+              timestamp: new Date().toISOString(),
+            });
+            broadcastToRoom(currentRoom, {
+              type: "playlist",
+              action: "update",
+              playlist: rooms[currentRoom].playlist,
+            });
+          }
         } else if (msg.action === "remove") {
           // payload: { index }
           rooms[currentRoom].playlist.splice(msg.payload.index, 1);
