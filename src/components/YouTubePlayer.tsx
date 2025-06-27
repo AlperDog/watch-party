@@ -19,30 +19,32 @@ const PlayerContainer = styled.div`
   height: 100%;
   position: relative;
   background: #000;
+  overflow: hidden;
+`;
+
+const IframeCoverWrapper = styled.div`
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
 `;
 
-const YouTubeWrapper = styled.div`
-  width: 80vw;
-  max-width: 1280px;
-  aspect-ratio: 16 / 9;
-  background: #111;
-  border-radius: 12px;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.5);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  iframe {
-    width: 100%;
-    height: 100%;
-    border: none;
-    display: block;
-    background: #000;
-  }
+const StyledIframe = styled.iframe`
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 100vw;
+  min-height: 100%;
+  width: 100vw;
+  height: 56.25vw;
+  border: none;
+  background: #000;
+  pointer-events: auto;
 `;
 
 const ControlsOverlay = styled.div`
@@ -54,9 +56,14 @@ const ControlsOverlay = styled.div`
   padding: 20px;
   opacity: 0;
   transition: opacity 0.3s;
-  
+  z-index: 2;
+  pointer-events: none;
   ${PlayerContainer}:hover & {
     opacity: 1;
+    pointer-events: auto;
+  }
+  & > * {
+    pointer-events: auto;
   }
 `;
 
@@ -197,6 +204,7 @@ const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
   isHost = true 
 }, ref) => {
   const playerRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(50);
@@ -208,11 +216,9 @@ const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
 
   // YouTube player options
   const opts = {
-    height: '100%',
-    width: '100%',
     playerVars: {
+      controls: 1, // Show default YouTube controls (including quality selector)
       autoplay: 0,
-      controls: 0, // Hide default controls
       modestbranding: 1,
       rel: 0,
       showinfo: 0,
@@ -384,15 +390,16 @@ const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
   }
 
   return (
-    <PlayerContainer>
-      <YouTubeWrapper>
+    <PlayerContainer ref={containerRef}>
+      <IframeCoverWrapper>
         <YouTube
           videoId={videoId}
           opts={opts}
           onReady={onReady}
           onStateChange={onStateChange}
+          iframeClassName={StyledIframe.styledComponentId}
         />
-      </YouTubeWrapper>
+      </IframeCoverWrapper>
       
       <VideoInfo>
         <VideoTitle>{videoTitle || 'Loading...'}</VideoTitle>
